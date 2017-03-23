@@ -12,17 +12,6 @@ using System.Threading.Tasks;
 
 namespace CSRedis.Internal
 {
-    interface IRedisSocket : IDisposable
-    {
-        bool Connected { get; }
-        int ReceiveTimeout { get; set; }
-        int SendTimeout { get; set; }
-        void Connect(EndPoint endpoint);
-        bool ConnectAsync(SocketAsyncEventArgs args);
-        bool SendAsync(SocketAsyncEventArgs args);
-        Stream CreateStream();
-    }
-
     class RedisConnector
     {
         readonly int _concurrency;
@@ -34,10 +23,10 @@ namespace CSRedis.Internal
 
         public event EventHandler Connected;
 
+        public AsyncConnector Async { get { return _asyncConnector.Value; } }
         public bool IsConnected { get { return _redisSocket.Connected; } }
-        public string Host { get { return _endPoint is DnsEndPoint ? (_endPoint as DnsEndPoint).Host : null; } }
-        public int Port { get { return _endPoint is DnsEndPoint ? (_endPoint as DnsEndPoint).Port : 0; } }
-        public bool IsPipelined { get { return _io.Pipeline == null ? false : _io.Pipeline.Active; } }
+        public EndPoint EndPoint { get { return _endPoint; } }
+        public bool IsPipelined { get { return _io.IsPipelined; } }
         public int ReconnectAttempts { get; set; }
         public int ReconnectWait { get; set; }
         public int ReceiveTimeout 
@@ -55,7 +44,6 @@ namespace CSRedis.Internal
             get { return _io.Encoding; }
             set { _io.Encoding = value; }
         }
-        public AsyncConnector Async { get { return _asyncConnector.Value; } }
         
 
         public RedisConnector(EndPoint endPoint, IRedisSocket socket, int concurrency, int bufferSize)
@@ -66,13 +54,6 @@ namespace CSRedis.Internal
             _redisSocket = socket;
             _io = new RedisIO();
             _asyncConnector = new Lazy<AsyncConnector>(AsyncConnectorFactory);
-        }
-
-        AsyncConnector AsyncConnectorFactory()
-        {
-            var connector = new AsyncConnector(_redisSocket, _endPoint, _io, _concurrency, _bufferSize);
-            connector.Connected += OnAsyncConnected;
-            return connector;
         }
 
         public bool Connect()
@@ -118,6 +99,8 @@ namespace CSRedis.Internal
 
         public void Write(RedisCommand command)
         {
+            ConnectIfNotConnected();
+
             try
             {
                 _io.Writer.Write(command, _io.Stream);
@@ -133,6 +116,8 @@ namespace CSRedis.Internal
 
         public T Read<T>(Func<RedisReader, T> func)
         {
+            ExpectConnected();
+
             try
             {
                 return func(_io.Reader);
@@ -148,6 +133,8 @@ namespace CSRedis.Internal
 
         public void Read(Stream destination, int bufferSize)
         {
+            ExpectConnected();
+
             try
             {
                 _io.Reader.ExpectType(RedisMessage.Bulk);
@@ -170,6 +157,8 @@ namespace CSRedis.Internal
 
         public object[] EndPipe()
         {
+            ExpectConnected();
+
             try
             {
                 return _io.Pipeline.Flush();
@@ -195,12 +184,6 @@ namespace CSRedis.Internal
 
         }
 
-        void ConnectIfNotConnected()
-        {
-            if (!IsConnected)
-                Connect();
-        }
-
         void Reconnect()
         {
             int attempts = 0;
@@ -214,11 +197,10 @@ namespace CSRedis.Internal
 
             throw new IOException("Could not reconnect after " + attempts + " attempts");
         }
-        
 
         void OnConnected()
         {
-            _io.SetStream(_redisSocket.CreateStream());
+            _io.SetStream(_redisSocket.GetStream());
             if (Connected != null)
                 Connected(this, new EventArgs());
         }
@@ -226,6 +208,25 @@ namespace CSRedis.Internal
         void OnAsyncConnected(object sender, EventArgs args)
         {
             OnConnected();
+        }
+
+        AsyncConnector AsyncConnectorFactory()
+        {
+            var connector = new AsyncConnector(_redisSocket, _endPoint, _io, _concurrency, _bufferSize);
+            connector.Connected += OnAsyncConnected;
+            return connector;
+        }
+
+        void ConnectIfNotConnected()
+        {
+            if (!IsConnected)
+                Connect();
+        }
+
+        void ExpectConnected()
+        {
+            if (!IsConnected)
+                throw new RedisClientException("Client is not connected");
         }
     }
 }
