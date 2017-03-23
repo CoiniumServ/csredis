@@ -48,6 +48,9 @@
     <DelaySign>true</DelaySign>
     <AssemblyOriginatorKeyFile>..\csredis.pub.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
+  <PropertyGroup>
+    <SignAssembly>false</SignAssembly>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -120,9 +123,6 @@
     <Compile Include="RedisSentinelClient.Sync.cs">
       <DependentUpon>RedisSentinelClient.cs</DependentUpon>
     </Compile>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="CSRedis.nuspec" />
   </ItemGroup>
   <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
